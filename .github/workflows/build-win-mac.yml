@@ -9,11 +9,22 @@ on:
       ci_version:
         required: true
         type: string
+    secrets:
+      # Optional: base64-encoded PKCS#12 bundle with a code signing certificate
+      # and its password. When present, the macOS app and DMG are signed with it
+      # so macOS treats every build as the same app (needed for Local Network
+      # permission to persist across builds). A self-signed cert is enough.
+      MACOS_SIGNING_P12:
+        required: false
+      MACOS_SIGNING_PASSWORD:
+        required: false
 
 jobs:
   build:
     env:
       CI_VERSION: ${{ inputs.ci_version }}
+      MACOS_SIGNING_P12: ${{ secrets.MACOS_SIGNING_P12 }}
+      MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,6 +92,40 @@ jobs:
           scripts\build-arch.bat Release arm64
         env:
           QT_PATH: ${{ runner.workspace }}\Qt\${{ matrix.qt_version }}\msvc2022_arm64\bin
+
+      - name: Import code signing certificate (macOS)
+        if: runner.os == 'macOS' && env.MACOS_SIGNING_P12 != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          P12="$RUNNER_TEMP/signing.p12"
+          CERT="$RUNNER_TEMP/signing.crt"
+
+          echo "$MACOS_SIGNING_P12" | base64 --decode > "$P12"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$P12" -P "$MACOS_SIGNING_PASSWORD" -f pkcs12 -k "$KEYCHAIN" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+
+          # Trust the (self-signed) certificate so codesign can build a chain to it
+          openssl pkcs12 -in "$P12" -clcerts -nokeys -out "$CERT" -passin "pass:$MACOS_SIGNING_PASSWORD" \
+            || openssl pkcs12 -legacy -in "$P12" -clcerts -nokeys -out "$CERT" -passin "pass:$MACOS_SIGNING_PASSWORD"
+          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$CERT"
+
+          IDENTITY="$(openssl x509 -in "$CERT" -noout -subject -nameopt sep_multiline | sed -n 's/^ *CN=//p' | head -1)"
+          [ -n "$IDENTITY" ] || { echo "Could not read CN from signing certificate"; exit 1; }
+          security find-identity -v -p codesigning "$KEYCHAIN"
+          echo "Signing with identity: $IDENTITY"
+          echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+          rm -f "$P12"
 
       - name: Build Package
         shell: pwsh
