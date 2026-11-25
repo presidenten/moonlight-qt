@@ -113,7 +113,11 @@ find "$APP_BUNDLE/" -name '*.dSYM' | xargs rm -rf
 
 if [ "$SIGNING_IDENTITY" != "" ]; then
   echo Signing app bundle
-  codesign --force --deep --verify --verbose --options runtime --timestamp \
+  # The hardened runtime enforces library validation, which requires a Team ID.
+  # Builds signed with a self-signed developer certificate must override this
+  # (e.g. CODESIGN_OPTIONS="--timestamp") or the app is killed at launch.
+  CODESIGN_OPTIONS=${CODESIGN_OPTIONS-"--options runtime --timestamp"}
+  codesign --force --deep --verify --verbose $CODESIGN_OPTIONS \
     --entitlements "$APP_BUNDLE/Contents/Resources/spatial-audio.entitlements" \
     --sign "$SIGNING_IDENTITY" \
     "$APP_BUNDLE" || fail "Signing failed!"
