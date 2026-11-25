@@ -58,6 +58,29 @@ int AppModel::getDirectLaunchAppIndex()
     return -1;
 }
 
+int AppModel::getAutoLaunchAppIndex()
+{
+    // Prefer an explicitly configured direct launch app
+    int index = getDirectLaunchAppIndex();
+    if (index >= 0) {
+        return index;
+    }
+
+    // Otherwise look for the Desktop app
+    for (int i = 0; i < m_VisibleApps.count(); i++) {
+        if (m_VisibleApps[i].name.compare(QStringLiteral("Desktop"), Qt::CaseInsensitive) == 0) {
+            return i;
+        }
+    }
+
+    // Finally, if the host only offers a single app, use that
+    if (m_VisibleApps.count() == 1) {
+        return 0;
+    }
+
+    return -1;
+}
+
 int AppModel::rowCount(const QModelIndex &parent) const
 {
     // For list models only the root node (an invalid parent) should return the list's size. For all

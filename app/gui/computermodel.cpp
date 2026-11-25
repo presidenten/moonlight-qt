@@ -14,6 +14,13 @@ void ComputerModel::initialize(ComputerManager* computerManager)
             this, &ComputerModel::handlePairingCompleted);
 
     m_Computers = m_ComputerManager->getComputers();
+
+    // Snapshot the current state of each host so we only react to
+    // transitions we observe, not to the state at startup.
+    for (NvComputer* computer : std::as_const(m_Computers)) {
+        QReadLocker lock(&computer->lock);
+        m_LastKnownStates[computer->uuid] = computer->state;
+    }
 }
 
 QVariant ComputerModel::data(const QModelIndex& index, int role) const
@@ -140,6 +147,8 @@ void ComputerModel::deleteComputer(int computerIndex)
 
     beginRemoveRows(QModelIndex(), computerIndex, computerIndex);
 
+    m_LastKnownStates.remove(m_Computers[computerIndex]->uuid);
+
     // m_Computer[computerIndex] will be deleted by this call
     m_ComputerManager->deleteHost(m_Computers[computerIndex]);
 
@@ -240,6 +249,41 @@ void ComputerModel::handleComputerStateChanged(NvComputer* computer)
         int index = m_Computers.indexOf(computer);
         emit dataChanged(createIndex(index, 0), createIndex(index, 0));
     }
+
+    checkForOnlineTransition(computer);
+}
+
+void ComputerModel::checkForOnlineTransition(NvComputer* computer)
+{
+    NvComputer::ComputerState newState;
+    QString name;
+    bool eligible;
+
+    {
+        QReadLocker lock(&computer->lock);
+        newState = computer->state;
+        name = computer->name;
+        eligible = computer->pairState == NvComputer::PS_PAIRED &&
+                   computer->isSupportedServerVersion;
+    }
+
+    // A host we have never seen before defaults to CS_UNKNOWN, so the
+    // initial UNKNOWN -> ONLINE transition at startup never fires. Only an
+    // observed OFFLINE -> ONLINE transition counts as "came online".
+    NvComputer::ComputerState oldState = m_LastKnownStates.value(computer->uuid, NvComputer::CS_UNKNOWN);
+    m_LastKnownStates[computer->uuid] = newState;
+
+    if (oldState != NvComputer::CS_OFFLINE || newState != NvComputer::CS_ONLINE || !eligible) {
+        return;
+    }
+
+    int index = m_Computers.indexOf(computer);
+    if (index < 0) {
+        return;
+    }
+
+    qInfo() << name << "came online - requesting auto-connect";
+    emit computerCameOnline(index, name);
 }
 
 #include "computermodel.moc"

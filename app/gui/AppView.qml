@@ -13,6 +13,12 @@ CenteredGridView {
     property bool showHiddenGames
     property bool showGames
 
+    // Set when this view was pushed automatically because the host came
+    // online. Starts the auto-launch app immediately and returns to the
+    // PC view once the stream ends.
+    property bool autoLaunch
+    property bool waitingForAppList
+
     id: appGrid
     focus: true
     activeFocusOnTab: true
@@ -42,6 +48,25 @@ CenteredGridView {
             currentIndex = 0
         }
 
+        if (autoLaunch) {
+            if (showGames) {
+                // We're returning from the auto-launched stream, so go
+                // back to the PC view instead of showing the app list.
+                stackView.pop()
+                return
+            }
+
+            // Set showGames so we will not loop when the stream ends
+            showGames = true
+
+            if (!tryAutoLaunch()) {
+                // The app list hasn't been fetched yet. Launch once it arrives.
+                waitingForAppList = true
+                appModel.rowsInserted.connect(onAppListChanged)
+            }
+            return
+        }
+
         if (!showGames && !showHiddenGames) {
             // Check if there's a direct launch app
             var directLaunchAppIndex = model.getDirectLaunchAppIndex();
@@ -58,7 +83,39 @@ CenteredGridView {
 
     StackView.onDeactivating: {
         appModel.computerLost.disconnect(computerLost)
+        if (waitingForAppList) {
+            waitingForAppList = false
+            appModel.rowsInserted.disconnect(onAppListChanged)
+        }
         activated = false
+    }
+
+    function tryAutoLaunch()
+    {
+        var autoLaunchAppIndex = appModel.getAutoLaunchAppIndex()
+        if (autoLaunchAppIndex < 0) {
+            return false
+        }
+
+        currentIndex = autoLaunchAppIndex
+        currentItem.launchOrResumeSelectedApp(false)
+        return true
+    }
+
+    function onAppListChanged()
+    {
+        // Rows arrive one at a time while the model processes a new app
+        // list. Defer until the whole batch has been applied so we pick
+        // the right app and don't launch mid-update.
+        Qt.callLater(finishDeferredAutoLaunch)
+    }
+
+    function finishDeferredAutoLaunch()
+    {
+        if (waitingForAppList && tryAutoLaunch()) {
+            waitingForAppList = false
+            appModel.rowsInserted.disconnect(onAppListChanged)
+        }
     }
 
     function createModel()
