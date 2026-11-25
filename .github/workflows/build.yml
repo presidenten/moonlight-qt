@@ -41,5 +41,6 @@ jobs:
   build-windows-macos:
     needs: setup
     uses: ./.github/workflows/build-win-mac.yml
+    secrets: inherit
     with:
       ci_version: ${{ needs.setup.outputs.ci_version }}
