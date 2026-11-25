@@ -114,19 +114,30 @@ jobs:
             -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
 
-          # Trust the (self-signed) certificate so codesign can build a chain to it
           openssl pkcs12 -in "$P12" -clcerts -nokeys -out "$CERT" -passin "pass:$MACOS_SIGNING_PASSWORD" \
             || openssl pkcs12 -legacy -in "$P12" -clcerts -nokeys -out "$CERT" -passin "pass:$MACOS_SIGNING_PASSWORD"
-          sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$CERT"
-
           IDENTITY="$(openssl x509 -in "$CERT" -noout -subject -nameopt sep_multiline | sed -n 's/^ *CN=//p' | head -1)"
           [ -n "$IDENTITY" ] || { echo "Could not read CN from signing certificate"; exit 1; }
+
+          case "$IDENTITY" in
+            "Developer ID Application:"*|"Apple Development:"*|"Apple Distribution:"*)
+              # Apple-issued certificate: make sure the Apple intermediate CA is
+              # available so codesign can build the chain. Hardened runtime stays on.
+              curl -fsSL https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" \
+                && security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KEYCHAIN" || true
+              ;;
+            *)
+              # Self-signed certificate: trust it so codesign can build a chain to it,
+              # and skip the hardened runtime. Without a Team ID its library validation
+              # would reject the bundled Qt/SDL/FFmpeg libraries at launch.
+              sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain "$CERT"
+              echo "CODESIGN_OPTIONS=--timestamp" >> "$GITHUB_ENV"
+              ;;
+          esac
+
           security find-identity -v -p codesigning "$KEYCHAIN"
           echo "Signing with identity: $IDENTITY"
           echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-          # No Team ID on a self-signed cert, so the hardened runtime's library
-          # validation would reject the bundled Qt/SDL/FFmpeg libraries at launch.
-          echo "CODESIGN_OPTIONS=--timestamp" >> "$GITHUB_ENV"
 
           rm -f "$P12"
 
