@@ -124,6 +124,9 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN"
           echo "Signing with identity: $IDENTITY"
           echo "SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          # No Team ID on a self-signed cert, so the hardened runtime's library
+          # validation would reject the bundled Qt/SDL/FFmpeg libraries at launch.
+          echo "CODESIGN_OPTIONS=--timestamp" >> "$GITHUB_ENV"
 
           rm -f "$P12"
 

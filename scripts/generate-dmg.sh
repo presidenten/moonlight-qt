@@ -73,7 +73,11 @@ find $BUILD_FOLDER/app/Moonlight.app/ -name '*.dSYM' | xargs rm -rf
 
 if [ "$SIGNING_IDENTITY" != "" ]; then
   echo Signing app bundle
-  codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" $BUILD_FOLDER/app/Moonlight.app || fail "Signing failed!"
+  # The hardened runtime enforces library validation, which requires a Team ID.
+  # Builds signed with a self-signed developer certificate must override this
+  # (e.g. CODESIGN_OPTIONS="--timestamp") or the app is killed at launch.
+  CODESIGN_OPTIONS=${CODESIGN_OPTIONS-"--options runtime --timestamp"}
+  codesign --force --deep $CODESIGN_OPTIONS --sign "$SIGNING_IDENTITY" $BUILD_FOLDER/app/Moonlight.app || fail "Signing failed!"
 fi
 
 echo Creating DMG
