@@ -49,8 +49,8 @@ signals:
     void pairingCompleted(QVariant error);
     void connectionTestCompleted(int result, QString blockedPorts);
 
-    // Emitted when a paired, supported host transitions from offline to online.
-    // Hosts first seen as online (e.g. at startup) do not trigger this.
+    // Emitted when a paired, supported host transitions to online, including
+    // the first time it is seen online after startup.
     void computerCameOnline(int computerIndex, QString name);
 
 private slots:
