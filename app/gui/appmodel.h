@@ -31,6 +31,10 @@ public:
 
     Q_INVOKABLE int getDirectLaunchAppIndex();
 
+    // Returns the app to start when auto-connecting to a host that just came
+    // online, or -1 if there is no suitable app (yet).
+    Q_INVOKABLE int getAutoLaunchAppIndex();
+
     Q_INVOKABLE int getRunningAppId();
 
     Q_INVOKABLE QString getRunningAppName();

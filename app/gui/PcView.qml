@@ -34,6 +34,11 @@ CenteredGridView {
         // Setup signals on CM
         ComputerManager.computerAddCompleted.connect(addComplete)
 
+        // Auto-connect to hosts that come online while we're idle here.
+        // Connected only while this view is active, so a host coming online
+        // during a stream or while in another view is ignored.
+        computerModel.computerCameOnline.connect(computerCameOnline)
+
         // Highlight the first item if a gamepad is connected
         if (currentIndex === -1 && SdlGamepadKeyNavigation.getConnectedGamepads() > 0) {
             currentIndex = 0
@@ -42,6 +47,18 @@ CenteredGridView {
 
     StackView.onDeactivating: {
         ComputerManager.computerAddCompleted.disconnect(addComplete)
+        computerModel.computerCameOnline.disconnect(computerCameOnline)
+    }
+
+    function computerCameOnline(computerIndex, name)
+    {
+        // A paired host just went from offline to online. Open its app view
+        // in auto-launch mode, which starts the stream without any clicks.
+        var component = Qt.createComponent("AppView.qml")
+        var appView = component.createObject(stackView, {"computerIndex": computerIndex,
+                                                         "objectName": name,
+                                                         "autoLaunch": true})
+        stackView.push(appView)
     }
 
     function pairingComplete(error)
