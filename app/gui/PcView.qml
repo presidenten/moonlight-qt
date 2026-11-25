@@ -54,6 +54,7 @@ CenteredGridView {
     {
         // A paired host just went from offline to online. Open its app view
         // in auto-launch mode, which starts the stream without any clicks.
+        console.info("Auto-connect: opening app view for " + name)
         var component = Qt.createComponent("AppView.qml")
         var appView = component.createObject(stackView, {"computerIndex": computerIndex,
                                                          "objectName": name,

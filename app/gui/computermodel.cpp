@@ -274,7 +274,12 @@ void ComputerModel::checkForOnlineTransition(NvComputer* computer)
     NvComputer::ComputerState oldState = m_LastKnownStates.value(computer->uuid, NvComputer::CS_UNKNOWN);
     m_LastKnownStates[computer->uuid] = newState;
 
-    if (oldState == NvComputer::CS_ONLINE || newState != NvComputer::CS_ONLINE || !eligible) {
+    if (oldState == NvComputer::CS_ONLINE || newState != NvComputer::CS_ONLINE) {
+        return;
+    }
+
+    if (!eligible) {
+        qInfo() << name << "came online but is not eligible for auto-connect (unpaired or unsupported)";
         return;
     }
 
