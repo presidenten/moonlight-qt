@@ -94,10 +94,12 @@ CenteredGridView {
     {
         var autoLaunchAppIndex = appModel.getAutoLaunchAppIndex()
         if (autoLaunchAppIndex < 0) {
+            console.info("Auto-connect: no suitable app yet (" + count + " apps), waiting for app list")
             return false
         }
 
         currentIndex = autoLaunchAppIndex
+        console.info("Auto-connect: launching app index " + autoLaunchAppIndex + " on " + objectName)
         currentItem.launchOrResumeSelectedApp(false)
         return true
     }
@@ -264,6 +266,7 @@ CenteredGridView {
         {
             var runningId = appModel.getRunningAppId()
             if (runningId !== 0 && runningId !== model.appid) {
+                console.info("Not launching " + model.name + " (id " + model.appid + ") because app id " + runningId + " is running")
                 if (quitExistingApp) {
                     quitAppDialog.appName = appModel.getRunningAppName()
                     quitAppDialog.segueToStream = true
