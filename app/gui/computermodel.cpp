@@ -16,7 +16,8 @@ void ComputerModel::initialize(ComputerManager* computerManager)
     m_Computers = m_ComputerManager->getComputers();
 
     // Snapshot the current state of each host so we only react to
-    // transitions we observe, not to the state at startup.
+    // transitions we observe. At startup every host is CS_UNKNOWN, so the
+    // first successful poll of an online host counts as coming online.
     for (NvComputer* computer : std::as_const(m_Computers)) {
         QReadLocker lock(&computer->lock);
         m_LastKnownStates[computer->uuid] = computer->state;
@@ -267,13 +268,13 @@ void ComputerModel::checkForOnlineTransition(NvComputer* computer)
                    computer->isSupportedServerVersion;
     }
 
-    // A host we have never seen before defaults to CS_UNKNOWN, so the
-    // initial UNKNOWN -> ONLINE transition at startup never fires. Only an
-    // observed OFFLINE -> ONLINE transition counts as "came online".
+    // Fire on any transition into CS_ONLINE, including the initial
+    // UNKNOWN -> ONLINE at startup, so a host that is already hosting when
+    // Moonlight launches is auto-connected too.
     NvComputer::ComputerState oldState = m_LastKnownStates.value(computer->uuid, NvComputer::CS_UNKNOWN);
     m_LastKnownStates[computer->uuid] = newState;
 
-    if (oldState != NvComputer::CS_OFFLINE || newState != NvComputer::CS_ONLINE || !eligible) {
+    if (oldState == NvComputer::CS_ONLINE || newState != NvComputer::CS_ONLINE || !eligible) {
         return;
     }
 
