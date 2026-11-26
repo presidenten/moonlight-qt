@@ -79,13 +79,20 @@ if [ -d "$QTDIR" ]; then
   mv "$QTDIR/macos/plugins/sqldrivers/libqsqlmimer.dylib" "$QTDIR/macos/plugins/sqldrivers/libqsqlmimer.dylib.hide"
 fi
 
+# The spatial audio / head tracking entitlements are restricted and only work
+# with a provisioning profile from a paid Apple Developer account. Without one
+# (e.g. CI builds signed with a self-signed certificate) sign without entitlements;
+# the app then runs unsandboxed like an unsigned build, minus AirPods head tracking.
+CODESIGN_ENTITLEMENTS_ARGS=()
 if [ "$SIGNING_IDENTITY" != "" ]; then
-  echo Setting up entitlements
-  if [ "$MOONLIGHT_PROVISION_PROFILE" == "" ]; then
-    fail "Please set MOONLIGHT_PROVISION_PROFILE to the path to your .provisionprofile"
+  if [ "$MOONLIGHT_PROVISION_PROFILE" != "" ]; then
+    echo Setting up entitlements
+    cp $SOURCE_ROOT/app/deploy/macos/spatial-audio.entitlements "$APP_BUNDLE/Contents/Resources/spatial-audio.entitlements"
+    cp $MOONLIGHT_PROVISION_PROFILE "$APP_BUNDLE/Contents/embedded.provisionprofile"
+    CODESIGN_ENTITLEMENTS_ARGS=(--entitlements "$APP_BUNDLE/Contents/Resources/spatial-audio.entitlements")
+  else
+    echo "MOONLIGHT_PROVISION_PROFILE not set - signing without spatial audio entitlements"
   fi
-  cp $SOURCE_ROOT/app/deploy/macos/spatial-audio.entitlements "$APP_BUNDLE/Contents/Resources/spatial-audio.entitlements"
-  cp $MOONLIGHT_PROVISION_PROFILE "$APP_BUNDLE/Contents/embedded.provisionprofile"
 fi
 
 echo Creating app bundle
@@ -123,7 +130,7 @@ find "$APP_BUNDLE/" -name '*.dSYM' | xargs rm -rf
 if [ "$SIGNING_IDENTITY" != "" ]; then
   echo Signing app bundle
   codesign --force --deep --verify --verbose $CODESIGN_OPTIONS \
-    --entitlements "$APP_BUNDLE/Contents/Resources/spatial-audio.entitlements" \
+    "${CODESIGN_ENTITLEMENTS_ARGS[@]}" \
     --sign "$SIGNING_IDENTITY" \
     "$APP_BUNDLE" || fail "Signing failed!"
   echo "App signature:"
