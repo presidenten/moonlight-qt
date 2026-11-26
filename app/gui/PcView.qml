@@ -11,6 +11,7 @@ import SdlGamepadKeyNavigation 1.0
 
 CenteredGridView {
     property ComputerModel computerModel : createModel()
+    property bool startupAutoConnectChecked
 
     id: pcGrid
     focus: true
@@ -38,6 +39,17 @@ CenteredGridView {
         // Connected only while this view is active, so a host coming online
         // during a stream or while in another view is ignored.
         computerModel.computerCameOnline.connect(computerCameOnline)
+
+        // A host may have come online before this view was listening (its
+        // first poll can complete before the view exists at startup). Pick
+        // such hosts up once, on the first activation.
+        if (!startupAutoConnectChecked) {
+            startupAutoConnectChecked = true
+            var pendingIndex = computerModel.takePendingAutoConnect()
+            if (pendingIndex >= 0) {
+                computerCameOnline(pendingIndex, computerModel.getComputerName(pendingIndex))
+            }
+        }
 
         // Highlight the first item if a gamepad is connected
         if (currentIndex === -1 && SdlGamepadKeyNavigation.getConnectedGamepads() > 0) {

@@ -16,12 +16,67 @@ void ComputerModel::initialize(ComputerManager* computerManager)
     m_Computers = m_ComputerManager->getComputers();
 
     // Snapshot the current state of each host so we only react to
-    // transitions we observe. At startup every host is CS_UNKNOWN, so the
-    // first successful poll of an online host counts as coming online.
+    // transitions we observe. Hosts are CS_UNKNOWN until first polled, but
+    // polling may already have completed before this model was created (it
+    // starts as soon as the window is active), so a host that is already
+    // online here is remembered as pending and picked up by the PC view.
     for (NvComputer* computer : std::as_const(m_Computers)) {
-        QReadLocker lock(&computer->lock);
-        m_LastKnownStates[computer->uuid] = computer->state;
+        NvComputer::ComputerState state;
+        {
+            QReadLocker lock(&computer->lock);
+            state = computer->state;
+        }
+        m_LastKnownStates[computer->uuid] = state;
+
+        QString name;
+        if (state == NvComputer::CS_ONLINE && isEligibleForAutoConnect(computer, &name)) {
+            qInfo() << name << "was already online at startup - pending auto-connect";
+            m_PendingAutoConnect.insert(computer->uuid);
+        }
     }
+}
+
+int ComputerModel::takePendingAutoConnect()
+{
+    m_StartupPhase = false;
+
+    int result = -1;
+    for (int i = 0; i < m_Computers.count() && result < 0; i++) {
+        NvComputer* computer = m_Computers[i];
+        if (!m_PendingAutoConnect.contains(computer->uuid)) {
+            continue;
+        }
+
+        bool online;
+        {
+            QReadLocker lock(&computer->lock);
+            online = computer->state == NvComputer::CS_ONLINE;
+        }
+        if (online && isEligibleForAutoConnect(computer, nullptr)) {
+            result = i;
+        }
+    }
+
+    m_PendingAutoConnect.clear();
+    return result;
+}
+
+QString ComputerModel::getComputerName(int computerIndex)
+{
+    Q_ASSERT(computerIndex < m_Computers.count());
+
+    QReadLocker lock(&m_Computers[computerIndex]->lock);
+    return m_Computers[computerIndex]->name;
+}
+
+bool ComputerModel::isEligibleForAutoConnect(NvComputer* computer, QString* name)
+{
+    QReadLocker lock(&computer->lock);
+    if (name != nullptr) {
+        *name = computer->name;
+    }
+    return computer->pairState == NvComputer::PS_PAIRED &&
+           computer->isSupportedServerVersion;
 }
 
 QVariant ComputerModel::data(const QModelIndex& index, int role) const
@@ -149,6 +204,7 @@ void ComputerModel::deleteComputer(int computerIndex)
     beginRemoveRows(QModelIndex(), computerIndex, computerIndex);
 
     m_LastKnownStates.remove(m_Computers[computerIndex]->uuid);
+    m_PendingAutoConnect.remove(m_Computers[computerIndex]->uuid);
 
     // m_Computer[computerIndex] will be deleted by this call
     m_ComputerManager->deleteHost(m_Computers[computerIndex]);
@@ -257,16 +313,12 @@ void ComputerModel::handleComputerStateChanged(NvComputer* computer)
 void ComputerModel::checkForOnlineTransition(NvComputer* computer)
 {
     NvComputer::ComputerState newState;
-    QString name;
-    bool eligible;
-
     {
         QReadLocker lock(&computer->lock);
         newState = computer->state;
-        name = computer->name;
-        eligible = computer->pairState == NvComputer::PS_PAIRED &&
-                   computer->isSupportedServerVersion;
     }
+    QString name;
+    bool eligible = isEligibleForAutoConnect(computer, &name);
 
     // Fire on any transition into CS_ONLINE, including the initial
     // UNKNOWN -> ONLINE at startup, so a host that is already hosting when
@@ -285,6 +337,14 @@ void ComputerModel::checkForOnlineTransition(NvComputer* computer)
 
     int index = m_Computers.indexOf(computer);
     if (index < 0) {
+        return;
+    }
+
+    if (m_StartupPhase) {
+        // The PC view has not asked for pending hosts yet, so nobody is
+        // listening to the signal. Hold on to it until it does.
+        qInfo() << name << "came online before the PC view was ready - pending auto-connect";
+        m_PendingAutoConnect.insert(computer->uuid);
         return;
     }
 

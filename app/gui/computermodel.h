@@ -2,6 +2,7 @@
 #include "streaming/session.h"
 
 #include <QAbstractListModel>
+#include <QSet>
 
 class ComputerModel : public QAbstractListModel
 {
@@ -45,6 +46,13 @@ public:
 
     Q_INVOKABLE Session* createSessionForCurrentGame(int computerIndex);
 
+    // Returns the index of a host that came online before anyone was listening
+    // for computerCameOnline (typically because its first poll completed during
+    // startup), or -1. Ends the startup phase: later transitions are signalled.
+    Q_INVOKABLE int takePendingAutoConnect();
+
+    Q_INVOKABLE QString getComputerName(int computerIndex);
+
 signals:
     void pairingCompleted(QVariant error);
     void connectionTestCompleted(int result, QString blockedPorts);
@@ -60,8 +68,11 @@ private slots:
 
 private:
     void checkForOnlineTransition(NvComputer* computer);
+    bool isEligibleForAutoConnect(NvComputer* computer, QString* name);
 
     QVector<NvComputer*> m_Computers;
     ComputerManager* m_ComputerManager;
     QHash<QString, NvComputer::ComputerState> m_LastKnownStates;
+    QSet<QString> m_PendingAutoConnect;
+    bool m_StartupPhase = true;
 };
