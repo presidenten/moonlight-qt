@@ -34,6 +34,15 @@ fi
 
 [ "$SIGNING_IDENTITY" == "" ] || git diff-index --quiet HEAD -- || fail "Signed release builds must not have unstaged changes!"
 
+# The hardened runtime enforces library validation, which requires a Team ID.
+# Builds signed with a self-signed developer certificate must override this
+# (e.g. CODESIGN_OPTIONS="--timestamp") or the app is killed at launch.
+CODESIGN_OPTIONS=${CODESIGN_OPTIONS-"--options runtime --timestamp"}
+MACDEPLOYQT_SIGN_ARGS="-codesign=$SIGNING_IDENTITY -timestamp"
+case "$CODESIGN_OPTIONS" in
+  *runtime*) MACDEPLOYQT_SIGN_ARGS="$MACDEPLOYQT_SIGN_ARGS -hardened-runtime";;
+esac
+
 echo Updating dependencies
 python3 $SOURCE_ROOT/setup-deps.py
 
@@ -84,7 +93,7 @@ EXTRA_ARGS=
 if [ "$BUILD_CONFIG" == "Debug" ]; then EXTRA_ARGS="$EXTRA_ARGS -use-debug-libs"; fi
 echo Extra deployment arguments: $EXTRA_ARGS
 if [ "$SIGNING_IDENTITY" != "" ]; then
-  macdeployqt "$APP_BUNDLE" $EXTRA_ARGS -qmldir=$SOURCE_ROOT/app/gui -codesign="$SIGNING_IDENTITY" -hardened-runtime -timestamp || fail "macdeployqt failed!"
+  macdeployqt "$APP_BUNDLE" $EXTRA_ARGS -qmldir=$SOURCE_ROOT/app/gui $MACDEPLOYQT_SIGN_ARGS || fail "macdeployqt failed!"
 else
   macdeployqt "$APP_BUNDLE" $EXTRA_ARGS -qmldir=$SOURCE_ROOT/app/gui -no-codesign || fail "macdeployqt failed!"
 fi
@@ -113,10 +122,6 @@ find "$APP_BUNDLE/" -name '*.dSYM' | xargs rm -rf
 
 if [ "$SIGNING_IDENTITY" != "" ]; then
   echo Signing app bundle
-  # The hardened runtime enforces library validation, which requires a Team ID.
-  # Builds signed with a self-signed developer certificate must override this
-  # (e.g. CODESIGN_OPTIONS="--timestamp") or the app is killed at launch.
-  CODESIGN_OPTIONS=${CODESIGN_OPTIONS-"--options runtime --timestamp"}
   codesign --force --deep --verify --verbose $CODESIGN_OPTIONS \
     --entitlements "$APP_BUNDLE/Contents/Resources/spatial-audio.entitlements" \
     --sign "$SIGNING_IDENTITY" \
