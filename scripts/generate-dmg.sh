@@ -74,9 +74,13 @@ dsymutil "$APP_BUNDLE/Contents/MacOS/Moonlight" -o Moonlight-$VERSION.dsym || fa
 cp -R Moonlight-$VERSION.dsym $INSTALLER_FOLDER || fail "dSYM copy failed!"
 popd
 
-echo Hiding libmimer
-if [ -d "$QTDIR" ]; then
-  mv "$QTDIR/macos/plugins/sqldrivers/libqsqlmimer.dylib" "$QTDIR/macos/plugins/sqldrivers/libqsqlmimer.dylib.hide"
+# Moonlight has no use for the Qt SQL drivers, and several of them (mimer, odbc,
+# psql) depend on libraries that are not present on build machines, which makes
+# macdeployqt fail. Hide the whole plugin directory while deploying.
+QT_PLUGINS_DIR=$(qmake -query QT_INSTALL_PLUGINS)
+if [ -d "$QT_PLUGINS_DIR/sqldrivers" ]; then
+  echo "Hiding Qt SQL drivers in $QT_PLUGINS_DIR"
+  mv "$QT_PLUGINS_DIR/sqldrivers" "$QT_PLUGINS_DIR/sqldrivers.hide"
 fi
 
 # The spatial audio / head tracking entitlements are restricted and only work
@@ -100,12 +104,14 @@ EXTRA_ARGS=
 if [ "$BUILD_CONFIG" == "Debug" ]; then EXTRA_ARGS="$EXTRA_ARGS -use-debug-libs"; fi
 echo Extra deployment arguments: $EXTRA_ARGS
 if [ "$SIGNING_IDENTITY" != "" ]; then
-  macdeployqt "$APP_BUNDLE" $EXTRA_ARGS -qmldir=$SOURCE_ROOT/app/gui $MACDEPLOYQT_SIGN_ARGS || fail "macdeployqt failed!"
+  macdeployqt "$APP_BUNDLE" $EXTRA_ARGS -qmldir=$SOURCE_ROOT/app/gui -appstore-compliant $MACDEPLOYQT_SIGN_ARGS || fail "macdeployqt failed!"
 else
-  macdeployqt "$APP_BUNDLE" $EXTRA_ARGS -qmldir=$SOURCE_ROOT/app/gui -no-codesign || fail "macdeployqt failed!"
+  macdeployqt "$APP_BUNDLE" $EXTRA_ARGS -qmldir=$SOURCE_ROOT/app/gui -appstore-compliant -no-codesign || fail "macdeployqt failed!"
 fi
 
-mv "$QTDIR/macos/plugins/sqldrivers/libqsqlmimer.dylib.hide" "$QTDIR/macos/plugins/sqldrivers/libqsqlmimer.dylib"
+if [ -d "$QT_PLUGINS_DIR/sqldrivers.hide" ]; then
+  mv "$QT_PLUGINS_DIR/sqldrivers.hide" "$QT_PLUGINS_DIR/sqldrivers"
+fi
 
 # TODO: lots more Qt crap that can be removed
 echo Removing unused Qt cruft
